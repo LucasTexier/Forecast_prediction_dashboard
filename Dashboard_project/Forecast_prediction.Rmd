@@ -1,0 +1,349 @@
+---
+title: "Forecast_prediction"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: columns
+    scroll : true
+    source_code: embed
+    vertical_layout: fill
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+library(maps); library(flexdashboard) ; library(ggplot2); library(ggmap); library(maps); library(mapdata); library(rgdal); library('classInt'); library('plotrix'); library(dplyr); library(readxl); library(sf);library(knitr); library(kableExtra);library(shiny); library(stringr); library(stringi); library(DT);library(reshape2); library(ggcorrplot);
+```
+
+# Accueil {data-icon="fa-home"}
+
+[***Réalisé par : Lucas TEXIER***]{style="color: #87CEEB;"}
+
+Lien vers la visualisation : <https://lucastex.shinyapps.io/Forecast_prediction/>
+
+### ***Présentation*** {data-width="250"}
+
+**1. Présentation du sujet :**
+
+Ceci est un dashbord qui fait suite à un projet de webscrapping. Nous avons à disposition une base de données (voir ci-joint). Le rapport est consultable dans l'onglet "Rapport" et l'ensemble du projet sur le lien : - <https://drive.google.com/drive/folders/1-Nas_FoPVneGIovqHJgtf6x4IiDqWaDR>
+
+**2. Plan d'expérience du projet :**
+
+Les données météorologiques sont collectées sous différentes heures pour une même journée à partir du site de Météo Blue en utilisant différentes techniques de Web Scraping. Nous avons des prévisions avec un horizon de 7 jours à un horizon d'un jour par rapport à la valeur réelle mesurée. Aucun échantillon humain ne sera utilisé dans cette expérience.
+
+**3. Analyse des données**
+
+Dans un premier temps l'objectif est d'afficher visuellement les données obtenues.Toutes les données sont présentées dans le rapport.
+
+L'objectif ensuite est de voir comment évolue les prédictions en fonction de la réelle valeur mesurée.
+
+Nous pourrons aussi pousser l'analyse en calculant les erreurs de prédictions et voir si le nombre de jours avant la prédiction à un impact sur la précision de l'estimation. On restreint notre étude à la température.
+
+**4. Résultats attendus**
+
+En affichant ces données, nous nous attendons à ce que la précision augmente plus l'on se rapproche du jour. Ainsi, nous pensons qu'il y a une corrélation entre l'erreur et la durée avec la journée à prédire.
+
+### ***Données collectées***
+
+```{r}
+Data <- read_excel("data2.xlsx", sheet = "data")
+datatable(Data, options = list(pageLength = 5))
+```
+# Rapport {data-icon="fa-search"}
+
+```{r rapport, fig.cap = "Titre du document PDF", out.width='800px', out.height='1000px', echo=FALSE}
+knitr::include_graphics("Rapport.pdf")
+```
+
+# Travail sur la BDD {data-icon="fa-cog"}
+
+```{r codeBDD}
+#import des données
+numDep <- read_excel("data2.xlsx", sheet = "Nom_departement")
+df <- read_excel("data2.xlsx", sheet = "data")
+
+#jointure avec l'excel contenant le nom des départements
+df <- merge(numDep, Data, by= "ville")
+# on split les infos des colonnes pour bien organiser les dates et jours
+df$date <- as.Date(df$`collect-date`)
+df$time <- format(df$`collect-date`, "%H:%M:%S")
+df$jour <- substr(df$`meteo-date`, 1, regexpr(" ", df$`meteo-date`)-1)
+df$heure <- substr(df$`meteo-date`, regexpr(" ", df$`meteo-date`)+1, nchar(df$`meteo-date`))
+
+#exemple pour plot le jeudi 07/03/2023 à 12:00
+df <- subset(df, date == "2023-03-07" & jour == "Jeudi" & heure == "12:00")
+france <- map_data("france")
+jointure <- merge(france, df, by.x = "region", by.y = "dpt", all.x = TRUE)
+#on réordonne jointure car sinon les points géographiques des colonnes de maps ne sont pas dans l'ordre
+jointure <- arrange(jointure, order)
+#ensuite on peut plot ! Voir page suivante
+```
+
+## Row {.tabset}
+
+### ***Problème de la base de données initiale*** {data-width="75"}
+
+Afin d'afficher visuellement, nous avons décidé d'utiliser la bibliothèque maps. Dans la base de données, il n'y avait que le nom de ville de la préfecture du département, nous avons donc joint un tableau avec la correspondance ville-département car la bibliothèque nécessite le nom du département. (De plus, un travail sur le format des caractères a été effectué). Dessous, on a tout le travail effectué (tableau ci dessous et code dans le code-source. Aussi, un travail sur les jours et les dates a permis de dissocier des colonnes pour pouvoir exploiter la BDD. Ci-dessous, on observe les trois tableaux : -le premier est celui issus de la bibliothèque maps -le deuxieme est celui construit pour faire le lien ville - département -le troisième est celui de la jointure
+
+### France via la bibliothèque 'maps' {data-width="700"}
+
+```{r affichage1}
+datatable(france, options = list(pageLength = 5))
+```
+
+### Lien département-ville {data-width="700"}
+
+```{r affichage2}
+datatable(numDep, options = list(pageLength = 5))
+```
+
+### ***Tableau final après jointure***
+
+```{r affichage3}
+datatable(jointure, options = list(pageLength = 5))
+```
+
+# Affichage de la France {data-icon="fa-globe"}
+
+## Row {.tabset}
+
+### Affichage des donnés {data-width="75"}
+
+Dans les onglets "Affichage n", il y a deux figures. Le cas pris est la prédiction du mardi, et le jour n correspond au jour où l'estimation est faite. Par exemple, pour estimation 2, cela correspond à l'estimation du 02/03 pour le mardi 07/03. (C'est à dire 5 jours avant). On a donc toutes les estimations du J-6 à la valeur réelle.
+
+-D'abord, la carte de la France avec les températures pour midi (12:00).
+
+-Aussi, l'évolution de la température dans la journée dans le départment de Paris.
+
+### Température du mardi 12:00 prévision J-6 {data-width="700"}
+
+```{r}
+numDep <- read_excel("data2.xlsx", sheet = "Nom_departement")
+df <- read_excel("data2.xlsx", sheet = "data")
+df <- merge(numDep, Data, by= "ville")
+df$date <- as.Date(df$`collect-date`)
+df$time <- format(df$`collect-date`, "%H:%M:%S")
+df$jour <- substr(df$`meteo-date`, 1, regexpr(" ", df$`meteo-date`)-1)
+df$heure <- substr(df$`meteo-date`, regexpr(" ", df$`meteo-date`)+1, nchar(df$`meteo-date`))
+df_sub <- subset(df, date == "2023-03-01" & jour == "Mardi" & ville == "Paris")
+ggplot(data = df_sub, aes(x = heure, y = temperature)) +
+  geom_line() +
+  geom_point(size = 3)
+df <- subset(df, heure == "12:00" & date == "2023-03-07" & jour == "Mardi")
+france <- map_data("france")
+jointure <- merge(france, df, by.x = "region", by.y = "dpt", all.x = TRUE)
+#on réordonne jointure car sinon les points géographiques des colonnes de maps ne sont pas dans l'ordre
+jointure <- arrange(jointure, order)
+ggplot() +
+  geom_polygon(data = jointure, aes(x = long, y = lat, group = group, fill = temperature)) +
+  coord_equal() +
+  scale_fill_gradient(low = "white", high = "red") +
+  theme_void() +
+  theme(panel.border = element_blank())
+```
+
+### Température du mardi 12:00 prévision J-5 {data-width="700"}
+
+```{r}
+numDep <- read_excel("data2.xlsx", sheet = "Nom_departement")
+df <- read_excel("data2.xlsx", sheet = "data")
+df <- merge(numDep, Data, by= "ville")
+df$date <- as.Date(df$`collect-date`)
+df$time <- format(df$`collect-date`, "%H:%M:%S")
+df$jour <- substr(df$`meteo-date`, 1, regexpr(" ", df$`meteo-date`)-1)
+df$heure <- substr(df$`meteo-date`, regexpr(" ", df$`meteo-date`)+1, nchar(df$`meteo-date`))
+df_sub <- subset(df, date == "2023-03-02" & jour == "Mardi" & ville == "Paris")
+ggplot(data = df_sub, aes(x = heure, y = temperature)) +
+  geom_line() +
+  geom_point(size = 3)
+df <- subset(df, heure == "12:00" & date == "2023-03-07" & jour == "Mardi")
+france <- map_data("france")
+jointure <- merge(france, df, by.x = "region", by.y = "dpt", all.x = TRUE)
+#on réordonne jointure car sinon les points géographiques des colonnes de maps ne sont pas dans l'ordre
+jointure <- arrange(jointure, order)
+ggplot() +
+  geom_polygon(data = jointure, aes(x = long, y = lat, group = group, fill = temperature)) +
+  coord_equal() +
+  scale_fill_gradient(low = "white", high = "red") +
+  theme_void() +
+  theme(panel.border = element_blank())
+```
+
+### Température du mardi 12:00 prévision J-4 {data-width="700"}
+
+```{r}
+numDep <- read_excel("data2.xlsx", sheet = "Nom_departement")
+df <- read_excel("data2.xlsx", sheet = "data")
+df <- merge(numDep, Data, by= "ville")
+df$date <- as.Date(df$`collect-date`)
+df$time <- format(df$`collect-date`, "%H:%M:%S")
+df$jour <- substr(df$`meteo-date`, 1, regexpr(" ", df$`meteo-date`)-1)
+df$heure <- substr(df$`meteo-date`, regexpr(" ", df$`meteo-date`)+1, nchar(df$`meteo-date`))
+df_sub <- subset(df, date == "2023-03-03" & jour == "Mardi" & ville == "Paris")
+ggplot(data = df_sub, aes(x = heure, y = temperature)) +
+  geom_line() +
+  geom_point(size = 3)
+df <- subset(df, heure == "12:00" & date == "2023-03-07" & jour == "Mardi")
+france <- map_data("france")
+jointure <- merge(france, df, by.x = "region", by.y = "dpt", all.x = TRUE)
+#on réordonne jointure car sinon les points géographiques des colonnes de maps ne sont pas dans l'ordre
+jointure <- arrange(jointure, order)
+ggplot() +
+  geom_polygon(data = jointure, aes(x = long, y = lat, group = group, fill = temperature)) +
+  coord_equal() +
+  scale_fill_gradient(low = "white", high = "red") +
+  theme_void() +
+  theme(panel.border = element_blank())
+```
+
+### Température du mardi 12:00 prévision J-3 {data-width="700"}
+
+```{r}
+numDep <- read_excel("data2.xlsx", sheet = "Nom_departement")
+df <- read_excel("data2.xlsx", sheet = "data")
+df <- merge(numDep, Data, by= "ville")
+df$date <- as.Date(df$`collect-date`)
+df$time <- format(df$`collect-date`, "%H:%M:%S")
+df$jour <- substr(df$`meteo-date`, 1, regexpr(" ", df$`meteo-date`)-1)
+df$heure <- substr(df$`meteo-date`, regexpr(" ", df$`meteo-date`)+1, nchar(df$`meteo-date`))
+df_sub <- subset(df, date == "2023-03-04" & jour == "Mardi" & ville == "Paris")
+ggplot(data = df_sub, aes(x = heure, y = temperature)) +
+  geom_line() +
+  geom_point(size = 3)
+df <- subset(df, heure == "12:00" & date == "2023-03-07" & jour == "Mardi")
+france <- map_data("france")
+jointure <- merge(france, df, by.x = "region", by.y = "dpt", all.x = TRUE)
+#on réordonne jointure car sinon les points géographiques des colonnes de maps ne sont pas dans l'ordre
+jointure <- arrange(jointure, order)
+ggplot() +
+  geom_polygon(data = jointure, aes(x = long, y = lat, group = group, fill = temperature)) +
+  coord_equal() +
+  scale_fill_gradient(low = "white", high = "red") +
+  theme_void() +
+  theme(panel.border = element_blank())
+```
+
+### Température du mardi 12:00 prévision J-2 {data-width="700"}
+
+```{r}
+numDep <- read_excel("data2.xlsx", sheet = "Nom_departement")
+df <- read_excel("data2.xlsx", sheet = "data")
+df <- merge(numDep, Data, by= "ville")
+df$date <- as.Date(df$`collect-date`)
+df$time <- format(df$`collect-date`, "%H:%M:%S")
+df$jour <- substr(df$`meteo-date`, 1, regexpr(" ", df$`meteo-date`)-1)
+df$heure <- substr(df$`meteo-date`, regexpr(" ", df$`meteo-date`)+1, nchar(df$`meteo-date`))
+df_sub <- subset(df, date == "2023-03-05" & jour == "Mardi" & ville == "Paris")
+ggplot(data = df_sub, aes(x = heure, y = temperature)) +
+  geom_line() +
+  geom_point(size = 3)
+df <- subset(df, heure == "12:00" & date == "2023-03-07" & jour == "Mardi")
+france <- map_data("france")
+jointure <- merge(france, df, by.x = "region", by.y = "dpt", all.x = TRUE)
+#on réordonne jointure car sinon les points géographiques des colonnes de maps ne sont pas dans l'ordre
+jointure <- arrange(jointure, order)
+ggplot() +
+  geom_polygon(data = jointure, aes(x = long, y = lat, group = group, fill = temperature)) +
+  coord_equal() +
+  scale_fill_gradient(low = "white", high = "red") +
+  theme_void() +
+  theme(panel.border = element_blank())
+```
+
+### Température du mardi 12:00 prévision J-1 {data-width="700"}
+
+```{r}
+numDep <- read_excel("data2.xlsx", sheet = "Nom_departement")
+df <- read_excel("data2.xlsx", sheet = "data")
+df <- merge(numDep, Data, by= "ville")
+df$date <- as.Date(df$`collect-date`)
+df$time <- format(df$`collect-date`, "%H:%M:%S")
+df$jour <- substr(df$`meteo-date`, 1, regexpr(" ", df$`meteo-date`)-1)
+df$heure <- substr(df$`meteo-date`, regexpr(" ", df$`meteo-date`)+1, nchar(df$`meteo-date`))
+df_sub <- subset(df, date == "2023-03-07" & jour == "Mardi" & ville == "Paris")
+ggplot(data = df_sub, aes(x = heure, y = temperature)) +
+  geom_line() +
+  geom_point(size = 3)
+df <- subset(df, heure == "12:00" & date == "2023-03-06" & jour == "Mardi")
+france <- map_data("france")
+jointure <- merge(france, df, by.x = "region", by.y = "dpt", all.x = TRUE)
+#on réordonne jointure car sinon les points géographiques des colonnes de maps ne sont pas dans l'ordre
+jointure <- arrange(jointure, order)
+ggplot() +
+  geom_polygon(data = jointure, aes(x = long, y = lat, group = group, fill = temperature)) +
+  coord_equal() +
+  scale_fill_gradient(low = "white", high = "red") +
+  theme_void() +
+  theme(panel.border = element_blank())
+```
+
+### Température du mardi 12:00 prévision J-0 : Réel {data-width="700"}
+
+```{r}
+numDep <- read_excel("data2.xlsx", sheet = "Nom_departement")
+df <- read_excel("data2.xlsx", sheet = "data")
+df <- merge(numDep, Data, by= "ville")
+df$date <- as.Date(df$`collect-date`)
+df$time <- format(df$`collect-date`, "%H:%M:%S")
+df$jour <- substr(df$`meteo-date`, 1, regexpr(" ", df$`meteo-date`)-1)
+df$heure <- substr(df$`meteo-date`, regexpr(" ", df$`meteo-date`)+1, nchar(df$`meteo-date`))
+df_sub <- subset(df, date == "2023-03-07" & jour == "Mardi" & ville == "Paris")
+ggplot(data = df_sub, aes(x = heure, y = temperature)) +
+  geom_line() +
+  geom_point(size = 3)
+df <- subset(df, heure == "12:00" & date == "2023-03-07" & jour == "Mardi")
+france <- map_data("france")
+jointure <- merge(france, df, by.x = "region", by.y = "dpt", all.x = TRUE)
+#on réordonne jointure car sinon les points géographiques des colonnes de maps ne sont pas dans l'ordre
+jointure <- arrange(jointure, order)
+ggplot() +
+  geom_polygon(data = jointure, aes(x = long, y = lat, group = group, fill = temperature)) +
+  coord_equal() +
+  scale_fill_gradient(low = "white", high = "red") +
+  theme_void() +
+  theme(panel.border = element_blank())
+```
+
+# Calcul de l'erreur relative de la température {data-icon="fa-globe"}
+
+## Row {.tabset}
+
+### Calcul de l'erreur {data-width="75"}
+
+Pour calculer l'erreur, on calcule l'erreur relative. La valeur réelle est celle du 07-03-2023. Ensuite, en regroupant par jour, on a la prédiction en fonction des jours de prédiction. Le but est d'afficher la matrice de corrélation et montrer que la date de prédiction a une influence sur l'erreur de prédiction. Concernant les graphiques de l'onglet ***"Erreur à Paris le Mardi"***, on voit tout au long de la journée l'évolution des erreurs pour tous les jours. Dans l'onglet "Table", on a la colonne "a" ajoutée qui contient la valeur réelle et la colonne "erreur" contenant l'erreur relative.
+
+### Table {data-width="75"}
+```{r}
+numDep <- read_excel("data2.xlsx", sheet = "Nom_departement")
+df <- read_excel("data2.xlsx", sheet = "data")
+df <- merge(numDep, Data, by= "ville")
+df$date <- as.Date(df$`collect-date`)
+df$time <- format(df$`collect-date`, "%H:%M:%S")
+df$jour <- substr(df$`meteo-date`, 1, regexpr(" ", df$`meteo-date`)-1)
+df$heure <- substr(df$`meteo-date`, regexpr(" ", df$`meteo-date`)+1, nchar(df$`meteo-date`))
+#on ne s'intéresse qu'au mardi
+df_mardi <- subset(df, jour == "Mardi")
+df_a <- df_mardi %>% filter(date == "2023-03-07") %>%
+  group_by(ville, heure) %>%
+  summarize(a = temperature[1])
+df_mardi <- left_join(df_mardi, df_a, by = c("ville", "heure"))
+df_mardi <- df_mardi %>% mutate(erreur = abs((temperature - a) / a))
+# Filtrer le dataframe pour la ville de Paris
+df_paris <- df_mardi %>% filter(ville == "Paris")
+
+datatable(df_mardi, options = list(pageLength = 5))
+```
+
+### ***"Erreur à Paris le Mardi"*** {data-width="75"}
+```{r}
+ggplot(df_paris, aes(x = heure, y = erreur)) +
+  geom_point(size = 2) +  # augmentation de la taille des points
+  facet_wrap(~date) +
+  xlab("Heure") +
+  ylab("Erreur")
+```
+
+### ***"Matrice de corrélation entre le jour de prédiction et l'erreur"*** {data-width="75"}
+
+```{r}
+df_mardi$jour_pred <- as.numeric(format(df_mardi$date, "%d"))
+ggcorrplot(cor(cbind(df_mardi$jour_pred, df_mardi$erreur)), type = "lower", colors = c("#6D9EC1", "#FFFFFF", "#E46726"), lab = TRUE)
+```
